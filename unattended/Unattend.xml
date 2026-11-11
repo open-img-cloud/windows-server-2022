@@ -1,4 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sysprep answer file, used by the LAST step of the build:
+    sysprep.exe /generalize /oobe /shutdown /unattend:<cloudbase-init conf dir>\Unattend.xml
+  It is NOT the Windows Setup answer file (that one is packer/autounattend.xml.pkrtpl).
+
+  Based on the Unattend.xml shipped with the Cloudbase-Init MSI:
+  https://github.com/cloudbase/cloudbase-init-installer/blob/master/CloudbaseInitSetup/Unattend.xml
+  - generalize: keep the VirtIO drivers installed during the build.
+  - specialize: run Cloudbase-Init once with cloudbase-init-unattend.conf
+    (hostname and MTU) before the first logon.
+  - oobeSystem: skip every OOBE screen; the password is set later by the
+    SetUserPasswordPlugin of Cloudbase-Init.
+-->
 <unattend xmlns="urn:schemas-microsoft-com:unattend">
   <settings pass="generalize">
     <component name="Microsoft-Windows-PnpSysprep" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -10,7 +23,7 @@
       <OOBE>
         <HideEULAPage>true</HideEULAPage>
         <NetworkLocation>Work</NetworkLocation>
-        <ProtectYourPC>1</ProtectYourPC>
+        <ProtectYourPC>3</ProtectYourPC>
         <SkipMachineOOBE>true</SkipMachineOOBE>
         <SkipUserOOBE>true</SkipUserOOBE>
       </OOBE>
@@ -21,7 +34,7 @@
       <RunSynchronous>
         <RunSynchronousCommand wcm:action="add">
           <Order>1</Order>
-          <Path>cmd.exe /c ""C:\Program Files\Cloudbase Solutions\Cloudbase-Init\Python\Scripts\cloudbase-init.exe" --config-file "C:\Program Files\Cloudbase Solutions\Cloudbase-Init\conf\cloudbase-init-unattend.conf" && exit 1 || exit 2"</Path>
+          <Path>cmd.exe /c ""C:\Program Files\Cloudbase Solutions\Cloudbase-Init\Python\Scripts\cloudbase-init.exe" --config-file "C:\Program Files\Cloudbase Solutions\Cloudbase-Init\conf\cloudbase-init-unattend.conf" &amp;&amp; exit 1 || exit 2"</Path>
           <Description>Run Cloudbase-Init to set the hostname</Description>
           <WillReboot>OnRequest</WillReboot>
         </RunSynchronousCommand>
