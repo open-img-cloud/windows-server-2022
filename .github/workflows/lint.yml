@@ -1,0 +1,102 @@
+# Static checks only. No Windows ISO is ever downloaded or built in CI:
+# openimages.cloud does not redistribute Windows images (see README).
+name: Lint
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    env:
+      CHECKPOINT_DISABLE: "1"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+
+      - uses: hashicorp/setup-packer@ce93c3c08a6c2ff2275bf4b54ff0d9a75f6c9789  # v3.4.0
+        with:
+          version: "1.16.2"
+
+      - name: Install xmllint
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libxml2-utils
+
+      - name: packer fmt
+        working-directory: packer
+        run: packer fmt -check -diff .
+
+      - name: packer init
+        working-directory: packer
+        run: packer init .
+
+      - name: packer validate (2022/2025, BIOS/UEFI)
+        working-directory: packer
+        run: |
+          for version in 2022 2025; do
+            for firmware in bios uefi; do
+              echo "== $version $firmware"
+              packer validate -var iso_path=/dev/null -var build_password=ci-only \
+                -var windows_version="$version" -var firmware="$firmware" .
+            done
+          done
+
+      - name: Render and check autounattend.xml
+        working-directory: packer
+        run: |
+          for firmware in bios uefi; do
+            for key in "" "AAAAA-BBBBB-CCCCC-DDDDD-EEEEE"; do
+              echo 'local.autounattend' | packer console \
+                -var iso_path=/dev/null -var 'build_password=ci&<only>' \
+                -var firmware="$firmware" -var product_key="$key" . \
+                | sed 's/<sensitive>/KEY/' > "/tmp/autounattend-$firmware.xml"
+              xmllint --noout "/tmp/autounattend-$firmware.xml"
+            done
+          done
+
+      - name: xmllint
+        run: xmllint --noout unattended/*.xml
+
+      - name: INI syntax
+        run: |
+          python3 - <<'EOF'
+          import configparser, glob, sys
+          ok = True
+          for path in sorted(glob.glob("config/*.ini")) + sorted(glob.glob("config/cloud/*.conf")):
+              parser = configparser.ConfigParser(interpolation=None, strict=True)
+              try:
+                  parser.read(path, encoding="utf-8")
+                  print(f"ok {path}")
+              except configparser.Error as exc:
+                  ok = False
+                  print(f"FAIL {path}: {exc}")
+          sys.exit(0 if ok else 1)
+          EOF
+
+      - name: Shell scripts
+        run: |
+          bash -n scripts/*.sh
+          shellcheck scripts/*.sh
+
+      - name: PowerShell syntax
+        shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem -Recurse -Filter *.ps1 | ForEach-Object {
+            $tokens = $null; $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors) { $failed = $true; $errors | ForEach-Object { Write-Host "$($_.Extent.File):$($_.Extent.StartLineNumber): $($_.Message)" } }
+            else { Write-Host "ok $($_.FullName)" }
+          }
+          if ($failed) { exit 1 }
+
+      - name: No em dash
+        run: |
+          if grep -rn --exclude-dir=.git $'\xe2\x80\x94' .; then
+            echo "Em dashes are not allowed in this organization's repositories." >&2
+            exit 1
+          fi
