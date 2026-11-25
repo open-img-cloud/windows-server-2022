@@ -58,7 +58,7 @@ variable "product_key" {
 variable "virtio_dir" {
   type        = string
   default     = ""
-  description = "Directory prepared by scripts/fetch-virtio.sh (viostor, vioscsi and NetKVM drivers plus virtio-win-guest-tools.exe). Empty means build/virtio-<windows_version> in the repository."
+  description = "Directory prepared by scripts/fetch-virtio.sh (viostor, vioscsi and NetKVM drivers plus the virtio-win-gt-x64 and qemu-ga-x86_64 MSI packages). Empty means build/virtio-<windows_version> in the repository."
 }
 
 variable "build_password" {
@@ -154,4 +154,10 @@ variable "output_dir" {
   type        = string
   default     = ""
   description = "Parent directory of the build output. Empty means output/ in the repository."
+}
+
+variable "qmp_socket" {
+  type        = string
+  default     = ""
+  description = "Path of a QMP socket for the build VM (screenshots, debugging). Empty disables QMP."
 }

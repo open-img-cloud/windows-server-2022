@@ -69,6 +69,10 @@ source "qemu" "windows" {
   memory      = var.memory
   headless    = var.headless
 
+  # Optional QMP socket, used by the CI to take screenshots of the console.
+  qmp_enable      = var.qmp_socket != ""
+  qmp_socket_path = var.qmp_socket != "" ? var.qmp_socket : null
+
   # BIOS: i440fx, the Nova and Proxmox default. UEFI: q35 + OVMF without
   # Secure Boot (set efi_firmware_code to a .secboot/.ms file to change that).
   machine_type      = local.uefi ? "q35" : "pc"
@@ -124,8 +128,11 @@ build {
   sources = ["source.qemu.windows"]
 
   # VirtIO drivers (all of them) and the QEMU guest agent.
+  # The time limit stops the build if the WinRM session is lost while the
+  # network driver is reinstalled, instead of waiting for hours.
   provisioner "powershell" {
-    script = "${path.root}/../scripts/guest/install-virtio-guest-tools.ps1"
+    script  = "${path.root}/../scripts/guest/install-virtio-guest-tools.ps1"
+    timeout = "30m"
   }
 
   provisioner "windows-restart" {

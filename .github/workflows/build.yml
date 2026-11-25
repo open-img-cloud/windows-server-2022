@@ -98,9 +98,15 @@ jobs:
 
       - name: Build
         run: |
+          # A screenshot of the build VM console every 2 minutes through QMP,
+          # uploaded when the job fails (the console is the only way to see
+          # where Windows Setup stopped).
+          mkdir -p "$WORK/screens"
+          python3 -I scripts/ci/screenshots.py "$WORK/qmp.sock" "$WORK/screens" 120 &
           args=(--iso "$WORK/windows.iso" --version "$VERSION" --edition "$EDITION" --firmware "$FIRMWARE")
           [ "${{ inputs.updates }}" = "true" ] || args+=(--no-updates)
-          scripts/build.sh "${args[@]}" -- -var "output_dir=$WORK/output" -var memory=8192 -var cpus=4
+          scripts/build.sh "${args[@]}" -- -var "output_dir=$WORK/output" -var memory=8192 -var cpus=4 \
+            -var "qmp_socket=$WORK/qmp.sock"
           rm -f "$WORK/windows.iso"
           ls -l "$WORK/output/$NAME"
 
@@ -128,3 +134,11 @@ jobs:
           path: ${{ env.WORK }}/output/${{ env.NAME }}/
           retention-days: 1
           compression-level: 0
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        if: failure()
+        with:
+          name: ${{ env.NAME }}-screens
+          path: ${{ env.WORK }}/screens/
+          retention-days: 7
+          if-no-files-found: ignore

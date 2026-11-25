@@ -72,7 +72,7 @@ if [ "$firmware" = "uefi" ]; then
 fi
 
 # VirtIO drivers for this Windows release.
-if [ ! -f "$repo_root/build/virtio-$version/virtio-win-guest-tools.exe" ]; then
+if [ ! -f "$repo_root/build/virtio-$version/qemu-ga-x86_64.msi" ]; then
   "$repo_root/scripts/fetch-virtio.sh" "$version"
 fi
 

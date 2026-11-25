@@ -256,8 +256,9 @@ extracts:
 - `viostor` (virtio-blk), `vioscsi` (virtio-scsi) and `NetKVM`
   (virtio-net) for the target release (`2k22` or `2k25` folder), loaded
   by Windows Setup;
-- `virtio-win-guest-tools.exe`, which installs every driver (balloon,
-  serial, RNG, input, pvpanic, fw_cfg, ...) and the QEMU guest agent.
+- `virtio-win-gt-x64.msi`, which installs every driver (balloon,
+  serial, RNG, input, pvpanic, fw_cfg, ...), and `qemu-ga-x86_64.msi`,
+  the QEMU guest agent.
 
 Options: `VIRTIO_CHANNEL=latest` for the newest (pre-release quality)
 build, or `VIRTIO_ISO=/usr/share/virtio-win/virtio-win.iso` to use the

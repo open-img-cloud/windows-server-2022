@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Prepares the VirtIO drivers for one Windows Server release:
 #   build/virtio-<version>/{viostor,vioscsi,NetKVM}/  drivers loaded by Windows Setup
-#   build/virtio-<version>/virtio-win-guest-tools.exe all drivers + QEMU guest agent
+#   build/virtio-<version>/virtio-win-gt-x64.msi      all drivers
+#   build/virtio-<version>/qemu-ga-x86_64.msi         QEMU guest agent
 #
 # Usage: scripts/fetch-virtio.sh <2022|2025>
 # Environment:
@@ -53,8 +54,12 @@ for drv in viostor vioscsi NetKVM; do
     exit 1
   fi
 done
-xorriso -osirrox on -indev "$iso" -extract /virtio-win-guest-tools.exe "$dest/virtio-win-guest-tools.exe" >/dev/null 2>&1 || true
-[ -s "$dest/virtio-win-guest-tools.exe" ] || { echo "virtio-win-guest-tools.exe missing from $iso" >&2; exit 1; }
+# The two MSI packages, not the virtio-win-guest-tools.exe bundle: msiexec
+# has documented exit codes and a verbose log, and returns when it is done.
+for msi in /virtio-win-gt-x64.msi /guest-agent/qemu-ga-x86_64.msi; do
+  xorriso -osirrox on -indev "$iso" -extract "$msi" "$dest/$(basename "$msi")" >/dev/null 2>&1 || true
+  [ -s "$dest/$(basename "$msi")" ] || { echo "$msi missing from $iso" >&2; exit 1; }
+done
 
 # Files extracted from an ISO are read-only; Packer copies the tree into a
 # new CD image and must be able to write inside the copied directories.
