@@ -1,5 +1,6 @@
-# Static checks only. No Windows ISO is ever downloaded or built in CI:
-# openimages.cloud does not redistribute Windows images (see README).
+# Static checks only, on every pull request. The test build with the
+# evaluation ISO is the manual workflow build.yml; openimages.cloud does
+# not redistribute Windows images (see README).
 name: Lint
 
 on:

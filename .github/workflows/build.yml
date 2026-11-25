@@ -1,0 +1,130 @@
+# Test build of the kit on a GitHub-hosted runner (KVM): downloads the
+# Microsoft evaluation ISO, builds the image with scripts/build.sh, boots it
+# once with scripts/smoke.sh.
+#
+# Nothing is published: openimages.cloud does not redistribute Windows images
+# (see README, Licensing and activation). The image is kept only when
+# keep_image is set, as a workflow artifact for one day, for the person who
+# ran the workflow to test it on their own cloud.
+name: Build
+
+on:
+  # TEMPORARY: lets the branch of the first pull request run a build before
+  # the workflow exists on main (workflow_dispatch needs it there). Removed
+  # before merging.
+  push:
+    branches: [feat/build-your-own]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Windows Server release
+        type: choice
+        options: ["2022", "2025"]
+        default: "2022"
+      edition:
+        description: Edition
+        type: choice
+        options: [standard, datacenter, standard-core, datacenter-core]
+        default: standard
+      firmware:
+        description: Firmware
+        type: choice
+        options: [bios, uefi]
+        default: bios
+      updates:
+        description: Install Windows Updates (adds 30 to 120 minutes)
+        type: boolean
+        default: false
+      keep_image:
+        description: Keep the qcow2 as an artifact for one day (never published)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ inputs.version || '2022' }}-${{ inputs.edition || 'standard' }}-${{ inputs.firmware || 'bios' }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      CHECKPOINT_DISABLE: "1"
+      VERSION: ${{ inputs.version || '2022' }}
+      EDITION: ${{ inputs.edition || 'standard' }}
+      FIRMWARE: ${{ inputs.firmware || 'bios' }}
+      NAME: windows-server-${{ inputs.version || '2022' }}-${{ inputs.edition || 'standard' }}-${{ inputs.firmware || 'bios' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -w /dev/kvm
+
+      - name: Install QEMU, OVMF and xorriso
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            qemu-system-x86 qemu-utils ovmf xorriso
+
+      - uses: hashicorp/setup-packer@ce93c3c08a6c2ff2275bf4b54ff0d9a75f6c9789  # v3.4.0
+        with:
+          version: "1.16.2"
+
+      - name: Work directory on the larger disk
+        run: |
+          df -h / /mnt
+          sudo install -d -o "$USER" /mnt/work
+          echo "WORK=/mnt/work" >> "$GITHUB_ENV"
+
+      - name: Download the evaluation ISO
+        # Microsoft Evaluation Center links (en-US). The ISO stays on the
+        # runner and is deleted with it.
+        run: |
+          case "$VERSION" in
+            2022) url='https://go.microsoft.com/fwlink/p/?LinkID=2195280&clcid=0x409&culture=en-us&country=US' ;;
+            2025) url='https://go.microsoft.com/fwlink/?linkid=2293312&clcid=0x409&culture=en-us&country=us' ;;
+          esac
+          curl -fsSL --retry 3 -o "$WORK/windows.iso" "$url"
+          ls -l "$WORK/windows.iso"
+          sha256sum "$WORK/windows.iso" | tee "$WORK/iso.sha256"
+
+      - name: Build
+        run: |
+          args=(--iso "$WORK/windows.iso" --version "$VERSION" --edition "$EDITION" --firmware "$FIRMWARE")
+          [ "${{ inputs.updates }}" = "true" ] || args+=(--no-updates)
+          scripts/build.sh "${args[@]}" -- -var "output_dir=$WORK/output" -var memory=8192 -var cpus=4
+          rm -f "$WORK/windows.iso"
+          ls -l "$WORK/output/$NAME"
+
+      - name: Boot test
+        run: scripts/smoke.sh "$WORK/output/$NAME/$NAME.qcow2" "$FIRMWARE" 40
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### $NAME"
+            echo
+            echo "- ISO: \`$(cut -d' ' -f1 "$WORK/iso.sha256" 2>/dev/null || echo n/a)\`"
+            if [ -f "$WORK/output/$NAME/$NAME.qcow2" ]; then
+              echo "- Image: $(du -h "$WORK/output/$NAME/$NAME.qcow2" | cut -f1), \`$(cut -d' ' -f1 "$WORK/output/$NAME/$NAME.qcow2.sha256" 2>/dev/null || echo n/a)\`"
+            fi
+            echo "- Windows Update: ${{ inputs.updates }}"
+            echo "- Image kept as artifact: ${{ inputs.keep_image }} (one day, never published)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        if: inputs.keep_image
+        with:
+          name: ${{ env.NAME }}
+          path: ${{ env.WORK }}/output/${{ env.NAME }}/
+          retention-days: 1
+          compression-level: 0

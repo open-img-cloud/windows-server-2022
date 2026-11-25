@@ -204,6 +204,14 @@ PKR_VAR_build_password='S0me-Strong-Pass!' packer build \
   -var iso_path=$HOME/iso/ws2022.iso -var edition=datacenter -var firmware=uefi .
 ```
 
+Before uploading, boot the image once on the build host. `scripts/smoke.sh` runs it on a
+temporary overlay with an OpenStack config drive and checks, through the QEMU guest agent, that
+the agent answers, that Cloudbase-Init set the hostname and that C: was extended to the disk:
+
+```sh
+scripts/smoke.sh output/windows-server-2022-standard-bios/windows-server-2022-standard-bios.qcow2 bios
+```
+
 ## What the build does
 
 1. Packer starts a QEMU/KVM VM with the ISO on an IDE CD-ROM and a
@@ -419,6 +427,7 @@ packer/
 scripts/
   build.sh                   Linux entry point
   fetch-virtio.sh            VirtIO drivers for 2022 (2k22) or 2025 (2k25)
+  smoke.sh                   boot test of a built image (guest agent)
   build-all-editions.ps1     Windows host entry point (imaging tools)
   guest/*.ps1                run inside the build VM
 config/
@@ -427,6 +436,7 @@ config/
   {standard,datacenter}-{bios,uefi}.ini  imaging tools configuration
 unattended/Unattend.xml      sysprep answer file
 .github/workflows/lint.yml   static checks
+.github/workflows/build.yml  manual test build on a GitHub runner (nothing published)
 ```
 
 ## Validation and CI
@@ -439,9 +449,15 @@ secrets and without any Windows media: `packer fmt -check`,
 PowerShell parsing of every `.ps1`, and a check that no em dash slipped
 in.
 
-A real build needs a Windows ISO and about an hour of KVM time: it is
-not run in CI. Please report your results (version, edition, firmware,
-OpenStack or Proxmox version) in an issue.
+`.github/workflows/build.yml` is a manual test build on a GitHub-hosted
+runner with KVM: it downloads the Microsoft evaluation ISO, runs
+`scripts/build.sh`, then `scripts/smoke.sh`. Nothing is published. The
+image can be kept as a workflow artifact for one day (`keep_image`), for
+the person who ran the workflow to test it on their own cloud under the
+evaluation license.
+
+Please report your results on your own clouds (version, edition,
+firmware, OpenStack or Proxmox version) in an issue.
 
 ## Troubleshooting
 
