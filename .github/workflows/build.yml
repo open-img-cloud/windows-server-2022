@@ -16,11 +16,6 @@ on:
     branches: [feat/build-your-own]
   workflow_dispatch:
     inputs:
-      version:
-        description: Windows Server release
-        type: choice
-        options: ["2022", "2025"]
-        default: "2022"
       edition:
         description: Edition
         type: choice
@@ -44,7 +39,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: build-${{ inputs.version || '2022' }}-${{ inputs.edition || 'standard' }}-${{ inputs.firmware || 'bios' }}
+  group: build-2022-${{ inputs.edition || 'standard' }}-${{ inputs.firmware || 'uefi' }}
   cancel-in-progress: false
 
 jobs:
@@ -53,10 +48,12 @@ jobs:
     timeout-minutes: 300
     env:
       CHECKPOINT_DISABLE: "1"
-      VERSION: ${{ inputs.version || '2022' }}
+      VERSION: "2022"
       EDITION: ${{ inputs.edition || 'standard' }}
-      FIRMWARE: ${{ inputs.firmware || 'bios' }}
-      NAME: windows-server-${{ inputs.version || '2022' }}-${{ inputs.edition || 'standard' }}-${{ inputs.firmware || 'bios' }}
+      # TEMPORARY: uefi for the push trigger of the first pull request (bios
+      # already tested); manual runs always pass inputs.firmware.
+      FIRMWARE: ${{ inputs.firmware || 'uefi' }}
+      NAME: windows-server-2022-${{ inputs.edition || 'standard' }}-${{ inputs.firmware || 'uefi' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
 
@@ -88,17 +85,18 @@ jobs:
           sudo install -d -o "$USER" /mnt/work
           echo "WORK=/mnt/work" >> "$GITHUB_ENV"
 
-      - name: Download the evaluation ISO
-        # Microsoft Evaluation Center links (en-US). The ISO stays on the
-        # runner and is deleted with it.
+      - name: Fetch the ISO from the vault
+        # The Microsoft evaluation ISO pinned in iso.sha256, from the
+        # project's private ISO vault (read-only key). The download fails
+        # on a hash mismatch. The ISO stays on the runner and is deleted
+        # with it.
+        env:
+          OIC_ISO_VAULT_KEY_ID: ${{ secrets.OIC_ISO_VAULT_KEY_ID }}
+          OIC_ISO_VAULT_SECRET: ${{ secrets.OIC_ISO_VAULT_SECRET }}
         run: |
-          case "$VERSION" in
-            2022) url='https://go.microsoft.com/fwlink/p/?LinkID=2195280&clcid=0x409&culture=en-us&country=US' ;;
-            2025) url='https://go.microsoft.com/fwlink/?linkid=2293312&clcid=0x409&culture=en-us&country=us' ;;
-          esac
-          curl -fsSL --retry 3 -o "$WORK/windows.iso" "$url"
-          ls -l "$WORK/windows.iso"
-          sha256sum "$WORK/windows.iso" | tee "$WORK/iso.sha256"
+          python3 -m venv "$RUNNER_TEMP/vault"
+          "$RUNNER_TEMP/vault/bin/pip" install --quiet boto3
+          "$RUNNER_TEMP/vault/bin/python" scripts/ci/fetch-iso.py iso.sha256 "$WORK/windows.iso"
 
       - name: Build
         # Packer can hang after its own provisioner timeout (WinRM cancel):
@@ -114,7 +112,7 @@ jobs:
           # where Windows Setup stopped).
           mkdir -p "$WORK/screens"
           python3 -I scripts/ci/screenshots.py "$WORK/qmp.sock" "$WORK/screens" 120 &
-          args=(--iso "$WORK/windows.iso" --version "$VERSION" --edition "$EDITION" --firmware "$FIRMWARE")
+          args=(--iso "$WORK/windows.iso" --edition "$EDITION" --firmware "$FIRMWARE")
           [ "${{ inputs.updates }}" = "true" ] || args+=(--no-updates)
           scripts/build.sh "${args[@]}" -- -var "output_dir=$WORK/output" -var memory=8192 -var cpus=4 \
             -var "qmp_socket=$WORK/qmp.sock"

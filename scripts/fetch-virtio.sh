@@ -4,7 +4,7 @@
 #   build/virtio-<version>/virtio-win-gt-x64.msi      all drivers
 #   build/virtio-<version>/qemu-ga-x86_64.msi         QEMU guest agent
 #
-# Usage: scripts/fetch-virtio.sh <2022|2025>
+# Usage: scripts/fetch-virtio.sh [2022]
 # Environment:
 #   VIRTIO_ISO      use this local virtio-win ISO instead of downloading one
 #                   (for example /usr/share/virtio-win/virtio-win.iso from the
@@ -16,8 +16,7 @@ set -euo pipefail
 version="${1:-2022}"
 case "$version" in
   2022) osdir=2k22 ;;
-  2025) osdir=2k25 ;;
-  *) echo "usage: $0 <2022|2025>" >&2; exit 2 ;;
+  *) echo "usage: $0 [2022] (Windows Server 2025: see windows-server-2025)" >&2; exit 2 ;;
 esac
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

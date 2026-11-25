@@ -4,10 +4,10 @@
 variable "windows_version" {
   type        = string
   default     = "2022"
-  description = "Windows Server release: 2022 or 2025."
+  description = "Windows Server release. This repository builds 2022 only; 2025 has its own repository (windows-server-2025)."
   validation {
-    condition     = contains(["2022", "2025"], var.windows_version)
-    error_message = "The windows_version must be 2022 or 2025."
+    condition     = var.windows_version == "2022"
+    error_message = "This repository builds Windows Server 2022 only (2025: windows-server-2025)."
   }
 }
 
@@ -24,7 +24,7 @@ variable "edition" {
 variable "image_index" {
   type        = number
   default     = 0
-  description = "Index of the image inside sources/install.wim. 0 derives it from edition (1 standard-core, 2 standard, 3 datacenter-core, 4 datacenter, the layout of the 2022 and 2025 ISOs). Check yours with: wiminfo sources/install.wim."
+  description = "Index of the image inside sources/install.wim. 0 derives it from edition (1 standard-core, 2 standard, 3 datacenter-core, 4 datacenter, the layout of the 2022 ISOs). Check yours with: wiminfo sources/install.wim."
 }
 
 variable "firmware" {

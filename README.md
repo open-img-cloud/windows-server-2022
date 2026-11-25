@@ -33,8 +33,8 @@ licensed), on a Linux host with KVM.
 
 What you get, per build: one compressed, sysprepped `qcow2` with
 
-- Windows Server 2022 or 2025, Standard or Datacenter (Desktop Experience
-  or Core);
+- Windows Server 2022, Standard or Datacenter (Desktop Experience or
+  Core); Windows Server 2025 has its own repository, `windows-server-2025`;
 - BIOS (i440fx) or UEFI (q35 + OVMF) boot;
 - VirtIO drivers (storage virtio-blk and virtio-scsi, network, balloon,
   serial, RNG, ...) and the QEMU guest agent;
@@ -81,7 +81,7 @@ does not change it.
 
 - **Evaluation media** (Microsoft Evaluation Center) run for **180
   days** and must be activated over the Internet within the first 10
-  days ([Evaluation Center][eval-2025]). Evaluation software is licensed
+  days ([Evaluation Center][eval-2022]). Evaluation software is licensed
   for testing; its terms do not grant a right to redistribute it
   ([Microsoft license terms][ms-useterms]). Do not publish images built
   from it.
@@ -133,8 +133,7 @@ then log in again).
 Pick one:
 
 - **Evaluation** (free, registration required, 180 days):
-  - Windows Server 2022: <https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2022>
-  - Windows Server 2025: <https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2025>
+  <https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2022>
 - **Licensed**: the ISO from your Volume Licensing / Microsoft 365 admin
   center / Visual Studio subscription.
 
@@ -146,7 +145,7 @@ Check the images inside the ISO (the build selects them by index):
 wiminfo /tmp/install.wim
 ```
 
-The 2022 and 2025 ISOs (evaluation and licensed) use this layout, which
+The 2022 ISOs (evaluation and licensed) use this layout, which
 `--edition` relies on:
 
 | Index | Edition | `--edition` |
@@ -170,8 +169,8 @@ scripts/build.sh --iso ~/iso/SERVER_EVAL_x64FRE_en-us.iso
 # Windows Server 2022 Datacenter, UEFI
 scripts/build.sh --iso ~/iso/ws2022.iso --edition datacenter --firmware uefi
 
-# Windows Server 2025 Standard, UEFI, licensed media with a KMS client key
-scripts/build.sh --iso ~/iso/ws2025.iso --version 2025 --firmware uefi \
+# Windows Server 2022 Standard, UEFI, licensed media with a KMS client key
+scripts/build.sh --iso ~/iso/ws2022.iso --firmware uefi \
   --product-key XXXXX-XXXXX-XXXXX-XXXXX-XXXXX
 
 # Faster test build without Windows Update, with the VM console visible
@@ -254,7 +253,7 @@ the **stable** ISO (0.1.302 in November 2026) to `build/cache/`, then
 extracts:
 
 - `viostor` (virtio-blk), `vioscsi` (virtio-scsi) and `NetKVM`
-  (virtio-net) for the target release (`2k22` or `2k25` folder), loaded
+  (virtio-net) from the `2k22` folder, loaded
   by Windows Setup;
 - `virtio-win-gt-x64.msi`, which installs every driver (balloon,
   serial, RNG, input, pvpanic, fw_cfg, ...), and `qemu-ga-x86_64.msi`,
@@ -305,7 +304,7 @@ Properties ([Glance useful image properties][glance-props]):
 |---|---|---|
 | `os_type` | `windows` | Nova enables Hyper-V enlightenments, RTC in local time, Windows specific defaults |
 | `os_distro` | `windows` | Libosinfo / scheduler hints |
-| `os_version` | `2022` or `2025` | Informative |
+| `os_version` | `2022` | Informative |
 | `hw_qemu_guest_agent` | `yes` | Adds the guest agent channel (quiesced snapshots, `virsh domifaddr`) |
 | `hw_disk_bus` | `virtio` (or `scsi` with `hw_scsi_model=virtio-scsi`) | Paravirtual disk; both drivers are in the image |
 | `hw_vif_model` | `virtio` | Paravirtual NIC |
@@ -343,7 +342,7 @@ copy-on-write clones.
 Proxmox passes Windows cloud-init data in the `configdrive2` format,
 which Cloudbase-Init reads with its ConfigDrive service
 ([Proxmox cloud-init support][pve-ci]). Proxmox `ostype` `win11` covers
-Windows Server 2022 and 2025. `import-from` needs Proxmox VE 7.2 or
+Windows Server 2022. `import-from` needs Proxmox VE 7.2 or
 later.
 
 ```sh
@@ -427,7 +426,8 @@ packer/
   autounattend.xml.pkrtpl    Windows Setup answer file (template)
 scripts/
   build.sh                   Linux entry point
-  fetch-virtio.sh            VirtIO drivers for 2022 (2k22) or 2025 (2k25)
+  fetch-virtio.sh            VirtIO drivers for 2022 (2k22)
+  ci/fetch-iso.py            CI: pinned ISO from the ISO vault (read-only key)
   smoke.sh                   boot test of a built image (guest agent)
   build-all-editions.ps1     Windows host entry point (imaging tools)
   guest/*.ps1                run inside the build VM
@@ -438,20 +438,22 @@ config/
 unattended/Unattend.xml      sysprep answer file
 .github/workflows/lint.yml   static checks
 .github/workflows/build.yml  manual test build on a GitHub runner (nothing published)
+iso.sha256                   ISO used by the CI build: sha256 and path in the vault
 ```
 
 ## Validation and CI
 
 `.github/workflows/lint.yml` runs on every pull request, without
 secrets and without any Windows media: `packer fmt -check`,
-`packer validate` for 2022/2025 x BIOS/UEFI, rendering of
+`packer validate` for BIOS and UEFI, rendering of
 `autounattend.xml` (with and without product key) checked by `xmllint`,
 `xmllint` on `unattended/`, INI syntax, `bash -n` and `shellcheck`,
 PowerShell parsing of every `.ps1`, and a check that no em dash slipped
 in.
 
 `.github/workflows/build.yml` is a manual test build on a GitHub-hosted
-runner with KVM: it downloads the Microsoft evaluation ISO, runs
+runner with KVM: it fetches the Microsoft evaluation ISO pinned in
+`iso.sha256` (path and sha256) from the project's private ISO vault, runs
 `scripts/build.sh`, then `scripts/smoke.sh`. Nothing is published. The
 image can be kept as a workflow artifact for one day (`keep_image`), for
 the person who ran the workflow to test it on their own cloud under the
@@ -481,8 +483,8 @@ firmware, OpenStack or Proxmox version) in an issue.
 
 Checked in November 2026.
 
-- Microsoft Evaluation Center, Windows Server 2022 and 2025 (180 days,
-  online activation within 10 days): [2022][eval-2022], [2025][eval-2025]
+- Microsoft Evaluation Center, Windows Server 2022 (180 days, online
+  activation within 10 days): [Evaluation Center][eval-2022]
 - Microsoft license terms: [microsoft.com/useterms][ms-useterms]
 - Convert evaluation to retail: [Microsoft Learn][ms-convert]
 - KMS client activation keys (GVLK): [Microsoft Learn][ms-gvlk]
@@ -514,7 +516,6 @@ Windows, the VirtIO drivers and Cloudbase-Init keep their own licenses.
 [glance-props]: https://docs.openstack.org/glance/latest/admin/useful-image-properties.html
 [pve-ci]: https://pve.proxmox.com/wiki/Cloud-Init_Support
 [eval-2022]: https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2022
-[eval-2025]: https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2025
 [ms-useterms]: https://www.microsoft.com/en-us/useterms
 [ms-convert]: https://learn.microsoft.com/windows-server/get-started/upgrade-conversion-options
 [ms-gvlk]: https://learn.microsoft.com/windows-server/get-started/kms-client-activation-keys

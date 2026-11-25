@@ -25,7 +25,7 @@ packer {
 locals {
   uefi = var.firmware == "uefi"
 
-  # install.wim layout of the Windows Server 2022 and 2025 ISOs
+  # install.wim layout of the Windows Server 2022 ISOs
   # (evaluation and licensed media alike).
   edition_index = {
     "standard-core"   = 1

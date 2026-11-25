@@ -39,15 +39,13 @@ jobs:
           PACKER_GITHUB_API_TOKEN: ${{ github.token }}
         run: packer init .
 
-      - name: packer validate (2022/2025, BIOS/UEFI)
+      - name: packer validate (BIOS/UEFI)
         working-directory: packer
         run: |
-          for version in 2022 2025; do
-            for firmware in bios uefi; do
-              echo "== $version $firmware"
-              packer validate -var iso_path=/dev/null -var build_password=ci-only \
-                -var windows_version="$version" -var firmware="$firmware" .
-            done
+          for firmware in bios uefi; do
+            echo "== $firmware"
+            packer validate -var iso_path=/dev/null -var build_password=ci-only \
+              -var firmware="$firmware" .
           done
 
       - name: Render and check autounattend.xml

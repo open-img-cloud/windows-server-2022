@@ -3,7 +3,7 @@
 # YOUR Windows Server ISO, on Linux with QEMU/KVM and Packer.
 #
 # Usage:
-#   scripts/build.sh --iso PATH [--version 2022|2025] [--edition EDITION]
+#   scripts/build.sh --iso PATH [--edition EDITION]
 #                    [--firmware bios|uefi] [--product-key KEY]
 #                    [--no-updates] [--headless false] [-- extra packer args]
 #
@@ -20,7 +20,6 @@ extra=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --iso) iso="$2"; shift 2 ;;
-    --version) version="$2"; shift 2 ;;
     --edition) edition="$2"; shift 2 ;;
     --firmware) firmware="$2"; shift 2 ;;
     --product-key) product_key="$2"; shift 2 ;;
