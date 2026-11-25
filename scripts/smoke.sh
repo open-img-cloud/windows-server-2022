@@ -114,9 +114,11 @@ def call(cmd, args=None, wait=10):
             s.close()
 
 
-def run(cmdline):
-    """Runs a command in the guest, returns its stdout or None."""
-    r = call("guest-exec", {"path": "cmd.exe", "arg": ["/c", cmdline], "capture-output": True})
+def run(path, *args):
+    """Runs a program in the guest, returns its stdout or None. Arguments go
+    one by one: the guest agent quotes them, so a command line passed through
+    cmd.exe /c would reach PowerShell as a quoted string, not as code."""
+    r = call("guest-exec", {"path": path, "arg": list(args), "capture-output": True})
     if not r:
         return None
     for _ in range(60):
@@ -144,7 +146,7 @@ print(f"ok: {info.get('pretty-name', '?')} ({info.get('kernel-version', '?')})")
 # Cloudbase-Init sets the hostname, then reboots the instance: wait for it.
 step = "hostname from the config drive"
 while time.time() < deadline:
-    name = run("hostname")
+    name = run("hostname.exe")
     if name and name.lower() == expected:
         break
     time.sleep(15)
@@ -154,7 +156,8 @@ print(f"ok: hostname {name} set by Cloudbase-Init after {int(time.time() - start
 
 step = "C: extended to the disk"
 while time.time() < deadline:
-    out = run('powershell -NoProfile -Command "[math]::Round((Get-Partition -DriveLetter C).Size/1GB)"')
+    out = run("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+              "[math]::Round((Get-Partition -DriveLetter C).Size/1GB)")
     if out and out.isdigit() and int(out) >= 55:
         break
     time.sleep(15)
