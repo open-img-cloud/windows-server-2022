@@ -104,6 +104,10 @@ jobs:
         # Packer can hang after its own provisioner timeout (WinRM cancel):
         # end the step instead of waiting for the job limit.
         timeout-minutes: ${{ inputs.updates && 240 || 90 }}
+        env:
+          # packer init lists plugin releases on the GitHub API: anonymous
+          # calls from shared runner addresses hit the rate limit.
+          PACKER_GITHUB_API_TOKEN: ${{ github.token }}
         run: |
           # A screenshot of the build VM console every 2 minutes through QMP,
           # uploaded when the job fails (the console is the only way to see
