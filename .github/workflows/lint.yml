@@ -33,6 +33,10 @@ jobs:
 
       - name: packer init
         working-directory: packer
+        env:
+          # Plugin releases are listed on the GitHub API: anonymous calls
+          # from shared runner addresses hit the rate limit.
+          PACKER_GITHUB_API_TOKEN: ${{ github.token }}
         run: packer init .
 
       - name: packer validate (2022/2025, BIOS/UEFI)
