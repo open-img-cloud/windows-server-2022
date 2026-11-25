@@ -24,7 +24,7 @@ fi
 work="$(mktemp -d)"
 qemu_pid=""
 cleanup() {
-  [ -n "$qemu_pid" ] && kill "$qemu_pid" 2>/dev/null || true
+  if [ -n "$qemu_pid" ]; then kill "$qemu_pid" 2>/dev/null || true; fi
   rm -rf "$work"
 }
 trap cleanup EXIT

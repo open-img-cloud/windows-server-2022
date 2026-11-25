@@ -91,11 +91,14 @@ source "qemu" "windows" {
   # Second CD: answer file, VirtIO drivers for WinPE, guest scripts and
   # Cloudbase-Init configuration. Needs xorriso (or mkisofs) on the host.
   cd_label = "OIC_SETUP"
+  # abspath(): Packer keeps the last directory of each entry (guest/, cloud/,
+  # unattended/) only when the path is clean; "./../scripts/guest" would
+  # write the files outside the CD.
   cd_files = [
-    "${local.virtio_dir}/*",
-    "${path.root}/../scripts/guest",
-    "${path.root}/../config/cloud",
-    "${path.root}/../unattended",
+    "${abspath(local.virtio_dir)}/*",
+    abspath("${path.root}/../scripts/guest"),
+    abspath("${path.root}/../config/cloud"),
+    abspath("${path.root}/../unattended"),
   ]
   cd_content = {
     "autounattend.xml" = local.autounattend
