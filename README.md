@@ -1,7 +1,28 @@
-# Windows Server cloud images: build your own
+<p align="center">
+  <a href="https://openimages.cloud">
+    <img src="https://openimages.cloud/img/og.png" alt="openimages.cloud: signed, boot-tested cloud images for OpenStack and Proxmox" width="720">
+  </a>
+</p>
 
-[![Lint](https://github.com/open-img-cloud/windows-server-2022/actions/workflows/lint.yml/badge.svg)](https://github.com/open-img-cloud/windows-server-2022/actions/workflows/lint.yml)
-[![GPL-2.0 License](https://img.shields.io/github/license/open-img-cloud/windows-server-2022.svg)](LICENSE)
+<h1 align="center">windows-server-2022</h1>
+
+<p align="center">
+  <a href="https://github.com/open-img-cloud/windows-server-2022/actions/workflows/lint.yml"><img alt="Lint" src="https://github.com/open-img-cloud/windows-server-2022/actions/workflows/lint.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License GPL-2.0" src="https://img.shields.io/badge/license-GPL--2.0-555"></a>
+  <img alt="Status: work in progress" src="https://img.shields.io/badge/status-work%20in%20progress-orange">
+</p>
+
+<p align="center">
+  <a href="https://openimages.cloud"><b>Website</b></a> ·
+  <a href="https://openimages.cloud/images/">Catalog</a> ·
+  <a href="https://github.com/open-img-cloud/docs">Documentation</a> ·
+  <a href="https://github.com/open-img-cloud/windows-server-2022/issues">Report an issue</a>
+</p>
+
+> [!WARNING]
+> **Build your own: no published image.** Windows Server is not part of the
+> [openimages.cloud catalog](https://openimages.cloud/images/): nothing is signed, boot-tested
+> or published from this repository. It is a kit to build your own image from your own ISO.
 
 **openimages.cloud does not publish Windows images.** Microsoft's
 evaluation license lets you install and test the software, not
