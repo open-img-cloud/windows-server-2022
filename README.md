@@ -204,8 +204,11 @@ PKR_VAR_build_password='S0me-Strong-Pass!' packer build \
 ```
 
 Before uploading, boot the image once on the build host. `scripts/smoke.sh` runs it on a
-temporary overlay with an OpenStack config drive and checks, through the QEMU guest agent, that
-the agent answers, that Cloudbase-Init set the hostname and that C: was extended to the disk:
+temporary overlay with an OpenStack metadata server (`scripts/metadata-server.py`, reached by an
+iptables redirect, so sudo is needed) and a config drive, and checks, through the QEMU guest
+agent, that the agent answers, that Cloudbase-Init took the hostname from the metadata server,
+that the generated Administrator password reached it encrypted with the instance key and opens
+a session in the guest, and that C: was extended to the disk:
 
 ```sh
 scripts/smoke.sh output/windows-server-2022-standard-bios/windows-server-2022-standard-bios.qcow2 bios
@@ -280,7 +283,8 @@ Main settings and why:
 | `username` / `groups` | `Administrator` / `Administrators` | The built-in account receives the password and keys |
 | `inject_user_password` | `true` | Use the password from metadata (Nova `admin_pass`, Proxmox `cipassword`); otherwise a random one is generated and, on OpenStack, posted encrypted with the key pair |
 | `first_logon_behaviour` | `no` | No forced password change at first logon |
-| `metadata_services` | ConfigDrive, then HttpService (OpenStack), then EC2 | Config drive first needs no network, and it is the only source on Proxmox (`configdrive2`); metadata API as fallback |
+| `metadata_services` | HttpService (OpenStack), then ConfigDrive, then EC2 | Cloudbase-Init uses only the first source that answers, and only the metadata API can receive the generated password (a config drive is read only); the config drive serves Proxmox (`configdrive2`) and clouds without metadata API |
+| `retry_count` / `retry_count_interval` | `3` / `3` | Without metadata API (Proxmox), the first boot waits about a minute and a half before it reads the config drive |
 | `config_drive_cdrom/raw_hhd/vfat` | `true` | Find the config drive whatever its form |
 | `mtu_use_dhcp_config`, `ntp_use_dhcp_config` | `true` | Honor Neutron DHCP options |
 | `logging_serial_port_settings` | `COM1,115200,N,8` | Logs in the console log (`openstack console log show`) |
@@ -429,6 +433,7 @@ scripts/
   fetch-virtio.sh            VirtIO drivers for 2022 (2k22)
   ci/fetch-iso.py            CI: pinned ISO from the ISO vault (read-only key)
   smoke.sh                   boot test of a built image (guest agent)
+  metadata-server.py         minimal Nova metadata API for smoke.sh
   build-all-editions.ps1     Windows host entry point (imaging tools)
   guest/*.ps1                run inside the build VM
 config/

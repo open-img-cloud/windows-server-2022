@@ -2,9 +2,18 @@
 # Boots a built image once with QEMU/KVM and an OpenStack config drive, and
 # checks it through the QEMU guest agent:
 #   1. the guest agent answers (VirtIO serial driver and QEMU-GA service);
-#   2. Cloudbase-Init applied the config drive (hostname from meta_data.json);
-#   3. C: was extended to the larger disk (ExtendVolumesPlugin).
+#   2. Cloudbase-Init used the metadata server, not the config drive (each
+#      gives another hostname);
+#   3. the random Administrator password reached the metadata server,
+#      encrypted with the instance key (nova get-password), and opens a
+#      session in the guest;
+#   4. C: was extended to the larger disk (ExtendVolumesPlugin).
 # The image itself is never modified: the VM runs on a temporary overlay.
+#
+# The metadata server (scripts/metadata-server.py) listens on the host; an
+# iptables rule, limited to the user of this script, redirects the
+# connections of QEMU (user networking) to 169.254.169.254:80 to it. sudo
+# is needed for that rule.
 #
 # Usage: scripts/smoke.sh IMAGE.qcow2 [bios|uefi] [timeout-minutes]
 set -euo pipefail
@@ -13,6 +22,8 @@ image="${1:?usage: scripts/smoke.sh IMAGE.qcow2 [bios|uefi] [timeout-minutes]}"
 firmware="${2:-bios}"
 timeout_min="${3:-30}"
 hostname_expected="oic-smoke"
+hostname_config_drive="oic-config-drive"
+metadata_port=8775
 
 qemu_binary="$(command -v qemu-system-x86_64 || true)"
 if [ -z "$qemu_binary" ] && [ -x /usr/libexec/qemu-kvm ]; then
@@ -20,11 +31,25 @@ if [ -z "$qemu_binary" ] && [ -x /usr/libexec/qemu-kvm ]; then
 fi
 [ -n "$qemu_binary" ] || { echo "qemu-system-x86_64 not found" >&2; exit 1; }
 [ -w /dev/kvm ] || { echo "/dev/kvm is not writable" >&2; exit 1; }
+sudo -n iptables -t nat -S OUTPUT >/dev/null ||
+  { echo "sudo iptables is needed for the metadata server" >&2; exit 1; }
 
 work="$(mktemp -d)"
 qemu_pid=""
+metadata_pid=""
+redirect=(-p tcp -d 169.254.169.254 --dport 80 -m owner --uid-owner "$(id -u)"
+  -j REDIRECT --to-ports "$metadata_port")
 cleanup() {
+  status=$?
   if [ -n "$qemu_pid" ]; then kill "$qemu_pid" 2>/dev/null || true; fi
+  if [ -n "$metadata_pid" ]; then
+    kill "$metadata_pid" 2>/dev/null || true
+    sudo -n iptables -t nat -D OUTPUT "${redirect[@]}" 2>/dev/null || true
+    if [ "$status" -ne 0 ] && [ -s "$work/metadata.log" ]; then
+      echo "--- metadata server requests ---"
+      tail -n 30 "$work/metadata.log"
+    fi
+  fi
   rm -rf "$work"
 }
 trap cleanup EXIT
@@ -33,10 +58,19 @@ trap cleanup EXIT
 # volume extension can be checked.
 qemu-img create -q -f qcow2 -F qcow2 -b "$(realpath "$image")" "$work/disk.qcow2" 60G
 
-# OpenStack config drive (label config-2), read by Cloudbase-Init first.
+# Instance key pair (RSA, the type Cloudbase-Init encrypts with) and the
+# metadata server.
+ssh-keygen -q -t rsa -b 2048 -m PEM -N '' -C oic-smoke -f "$work/key"
+python3 "$(dirname "$0")/metadata-server.py" "$metadata_port" "$hostname_expected" \
+  "$work/key.pub" "$work/password.b64" 2>"$work/metadata.log" &
+metadata_pid=$!
+sudo -n iptables -t nat -A OUTPUT "${redirect[@]}"
+
+# OpenStack config drive (label config-2), with another hostname: the
+# metadata server must win, since only it can receive the password.
 mkdir -p "$work/cd/openstack/latest"
 cat > "$work/cd/openstack/latest/meta_data.json" <<EOF
-{"uuid": "$(cat /proc/sys/kernel/random/uuid)", "hostname": "$hostname_expected", "name": "$hostname_expected"}
+{"uuid": "$(cat /proc/sys/kernel/random/uuid)", "hostname": "$hostname_config_drive", "name": "$hostname_config_drive"}
 EOF
 xorriso -as mkisofs -quiet -V config-2 -J -r -o "$work/config-2.iso" "$work/cd"
 
@@ -71,10 +105,11 @@ fi
 qemu_pid=$!
 
 # The guest agent is driven from Python (standard library only).
-python3 - "$work/qga.sock" "$hostname_expected" "$timeout_min" <<'PY'
-import base64, json, socket, sys, time
+python3 - "$work/qga.sock" "$hostname_expected" "$timeout_min" "$work" <<'PY'
+import base64, json, os, socket, subprocess, sys, time
 
 sock_path, expected, timeout_min = sys.argv[1], sys.argv[2], int(sys.argv[3])
+work = sys.argv[-1]
 deadline = time.time() + timeout_min * 60
 
 
@@ -144,7 +179,7 @@ info = call("guest-get-osinfo") or {}
 print(f"ok: {info.get('pretty-name', '?')} ({info.get('kernel-version', '?')})")
 
 # Cloudbase-Init sets the hostname, then reboots the instance: wait for it.
-step = "hostname from the config drive"
+step = "hostname from the metadata server"
 while time.time() < deadline:
     name = run("hostname.exe")
     if name and name.lower() == expected:
@@ -152,7 +187,50 @@ while time.time() < deadline:
     time.sleep(15)
 else:
     sys.exit(f"FAIL: {step} (last seen: {name!r})")
-print(f"ok: hostname {name} set by Cloudbase-Init after {int(time.time() - start)} s")
+print(f"ok: hostname {name} from the metadata server after {int(time.time() - start)} s")
+
+# The password posted by SetUserPasswordPlugin, decrypted with the private
+# key as nova get-password does, must open an Administrator session.
+step = "password posted to the metadata server"
+password_file = os.path.join(work, "password.b64")
+while time.time() < deadline and not os.path.exists(password_file):
+    time.sleep(10)
+if not os.path.exists(password_file):
+    sys.exit(f"FAIL: {step}")
+with open(password_file, "rb") as f:
+    encrypted = base64.b64decode(f.read())
+password = subprocess.run(
+    ["openssl", "pkeyutl", "-decrypt", "-inkey", os.path.join(work, "key"),
+     "-pkeyopt", "rsa_padding_mode:pkcs1"],
+    input=encrypted, capture_output=True, check=True).stdout.decode()
+print(f"ok: password of {len(password)} characters posted and decrypted")
+
+
+def logon(candidate):
+    """LogonUser (interactive) for Administrator in the guest, from
+    PowerShell (-EncodedCommand: no quoting through the agent)."""
+    secret = base64.b64encode(candidate.encode()).decode()
+    script = (
+        "$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%s'));"
+        "Add-Type -Namespace OIC -Name L -MemberDefinition '"
+        "[DllImport(\"advapi32.dll\", SetLastError=true)] public static extern bool "
+        "LogonUser(string u, string d, string p, int t, int v, out IntPtr h);';"
+        "$h=[IntPtr]::Zero;"
+        "if ([OIC.L]::LogonUser('Administrator', '.', $p, 2, 0, [ref]$h)) {'logon-ok'} "
+        "else {'logon-failed ' + [Runtime.InteropServices.Marshal]::GetLastWin32Error()}"
+    ) % secret
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode()
+    return run(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+               "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded)
+
+
+out = logon(password)
+if out != "logon-ok":
+    sys.exit(f"FAIL: the posted password does not open a session ({out!r})")
+out = logon(password + "x")
+if not (out or "").startswith("logon-failed"):
+    sys.exit(f"FAIL: a wrong password was not refused ({out!r})")
+print("ok: the posted password opens an Administrator session, a wrong one is refused")
 
 step = "C: extended to the disk"
 while time.time() < deadline:
