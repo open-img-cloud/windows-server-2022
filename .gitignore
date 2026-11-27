@@ -1,0 +1,8 @@
+# Local build inputs and outputs: never commit ISOs or images.
+build/
+output/
+packer_cache/
+*.iso
+*.qcow2
+*.vhdx
+*.pkrvars.hcl

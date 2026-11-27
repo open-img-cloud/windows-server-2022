@@ -1,0 +1,153 @@
+# Test build of the kit on a GitHub-hosted runner (KVM): downloads the
+# Microsoft evaluation ISO, builds the image with scripts/build.sh, boots it
+# once with scripts/smoke.sh.
+#
+# Nothing is published: openimages.cloud does not redistribute Windows images
+# (see README, Licensing and activation). The image is kept only when
+# keep_image is set, as a workflow artifact for one day, for the person who
+# ran the workflow to test it on their own cloud.
+name: Build
+
+on:
+  # TEMPORARY: lets the branch of the first pull request run a build before
+  # the workflow exists on main (workflow_dispatch needs it there). Removed
+  # before merging.
+  push:
+    branches: [feat/build-your-own]
+  workflow_dispatch:
+    inputs:
+      edition:
+        description: Edition
+        type: choice
+        options: [standard, datacenter, standard-core, datacenter-core]
+        default: standard
+      firmware:
+        description: Firmware
+        type: choice
+        options: [bios, uefi]
+        default: bios
+      updates:
+        description: Install Windows Updates (adds 30 to 120 minutes)
+        type: boolean
+        default: false
+      keep_image:
+        description: Keep the qcow2 as an artifact for one day (never published)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-2022-${{ inputs.edition || 'standard' }}-${{ inputs.firmware || 'uefi' }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      CHECKPOINT_DISABLE: "1"
+      VERSION: "2022"
+      EDITION: ${{ inputs.edition || 'standard' }}
+      # TEMPORARY: uefi for the push trigger of the first pull request (bios
+      # already tested); manual runs always pass inputs.firmware.
+      FIRMWARE: ${{ inputs.firmware || 'uefi' }}
+      NAME: windows-server-2022-${{ inputs.edition || 'standard' }}-${{ inputs.firmware || 'uefi' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo udevadm settle
+          ls -l /dev/kvm
+          # The udev rule can be slower than this step: set the mode directly.
+          [ -w /dev/kvm ] || sudo chmod 666 /dev/kvm
+          test -w /dev/kvm
+
+      - name: Install QEMU, OVMF and xorriso
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            qemu-system-x86 qemu-utils ovmf xorriso
+
+      - uses: hashicorp/setup-packer@ce93c3c08a6c2ff2275bf4b54ff0d9a75f6c9789  # v3.4.0
+        with:
+          version: "1.16.2"
+
+      - name: Work directory on the larger disk
+        run: |
+          df -h / /mnt
+          sudo install -d -o "$USER" /mnt/work
+          echo "WORK=/mnt/work" >> "$GITHUB_ENV"
+
+      - name: Fetch the ISO from the vault
+        # The Microsoft evaluation ISO pinned in iso.sha256, from the
+        # project's private ISO vault (read-only key). The download fails
+        # on a hash mismatch. The ISO stays on the runner and is deleted
+        # with it.
+        env:
+          OIC_ISO_VAULT_KEY_ID: ${{ secrets.OIC_ISO_VAULT_KEY_ID }}
+          OIC_ISO_VAULT_SECRET: ${{ secrets.OIC_ISO_VAULT_SECRET }}
+        run: |
+          python3 -m venv "$RUNNER_TEMP/vault"
+          "$RUNNER_TEMP/vault/bin/pip" install --quiet boto3
+          "$RUNNER_TEMP/vault/bin/python" scripts/ci/fetch-iso.py iso.sha256 "$WORK/windows.iso"
+
+      - name: Build
+        # Packer can hang after its own provisioner timeout (WinRM cancel):
+        # end the step instead of waiting for the job limit.
+        timeout-minutes: ${{ inputs.updates && 240 || 90 }}
+        env:
+          # packer init lists plugin releases on the GitHub API: anonymous
+          # calls from shared runner addresses hit the rate limit.
+          PACKER_GITHUB_API_TOKEN: ${{ github.token }}
+        run: |
+          # A screenshot of the build VM console every 2 minutes through QMP,
+          # uploaded when the job fails (the console is the only way to see
+          # where Windows Setup stopped).
+          mkdir -p "$WORK/screens"
+          python3 -I scripts/ci/screenshots.py "$WORK/qmp.sock" "$WORK/screens" 120 &
+          args=(--iso "$WORK/windows.iso" --edition "$EDITION" --firmware "$FIRMWARE")
+          [ "${{ inputs.updates }}" = "true" ] || args+=(--no-updates)
+          scripts/build.sh "${args[@]}" -- -var "output_dir=$WORK/output" -var memory=8192 -var cpus=4 \
+            -var "qmp_socket=$WORK/qmp.sock"
+          rm -f "$WORK/windows.iso"
+          ls -l "$WORK/output/$NAME"
+
+      - name: Boot test
+        run: scripts/smoke.sh "$WORK/output/$NAME/$NAME.qcow2" "$FIRMWARE" 40
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### $NAME"
+            echo
+            echo "- ISO: \`$(cut -d' ' -f1 "$WORK/iso.sha256" 2>/dev/null || echo n/a)\`"
+            if [ -f "$WORK/output/$NAME/$NAME.qcow2" ]; then
+              echo "- Image: $(du -h "$WORK/output/$NAME/$NAME.qcow2" | cut -f1), \`$(cut -d' ' -f1 "$WORK/output/$NAME/$NAME.qcow2.sha256" 2>/dev/null || echo n/a)\`"
+            fi
+            echo "- Windows Update: ${{ inputs.updates }}"
+            echo "- Image kept as artifact: ${{ inputs.keep_image }} (one day, never published)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        if: inputs.keep_image
+        with:
+          name: ${{ env.NAME }}
+          path: ${{ env.WORK }}/output/${{ env.NAME }}/
+          retention-days: 1
+          compression-level: 0
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        if: failure() || cancelled()
+        with:
+          name: ${{ env.NAME }}-screens
+          path: ${{ env.WORK }}/screens/
+          retention-days: 7
+          if-no-files-found: ignore
